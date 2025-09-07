@@ -19,12 +19,11 @@ const int LOADCELL_SCK_PIN  = D6; // GPIO12
 // Device identifier
 const char* deviceId = "spicebox-01";
 
-// Supabase REST endpoint (replace <project-ref>)
-const char* SUPABASE_URL = "https://<your-project-ref>.supabase.co/rest/v1/readings";
+// Supabase REST endpoint (project-specific)
+const char* SUPABASE_URL = "https://miozfvxmnehtxqgnnmcm.supabase.co/rest/v1/readings";
 
-// Supabase API key (ANON key for dev). Replace with your anon key.
-// WARNING: placing this in firmware is insecure. Use only for prototyping/demo.
-const char* SUPABASE_API_KEY = "YOUR_SUPABASE_ANON_KEY";
+// Supabase API key (ANON key for dev). WARNING: insecure on device; for prototyping only.
+const char* SUPABASE_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1pb3pmdnhtbmVodHhxZ25ubWNtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcyMzc2MjgsImV4cCI6MjA3MjgxMzYyOH0.hexMhnc5G1SkwURPYHXaYS7XgSQwnH5xQspw4AfxwgI";
 
 // Posting interval (ms)
 const unsigned long POST_INTERVAL_MS = 2000;
@@ -51,7 +50,7 @@ void setup() {
   Serial.println("Starting Wi-Fi Manager (AP: ESP8266-WeightScale) ...");
   if (!wifiManager.autoConnect("ESP8266-WeightScale")) {
     Serial.println("Failed to connect and hit timeout — restarting...");
-    ESP.reset();
+    ESP.restart();
     delay(1000);
   }
 
@@ -76,18 +75,24 @@ void sendToSupabase(float weight) {
   }
 
   // Build JSON payload (Supabase will set created_at)
-  String payload = "{\"deviceId\":\"" + String(deviceId) + "\",\"weight_g\":" + String(weight, 3) + "}";
+  // NOTE: Column is deviceid in DB, so use matching key
+  String payload = "{\"deviceid\":\"" + String(deviceId) + "\",\"weight_g\":" + String(weight, 3) + "}";
 
   // Secure client
   std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure());
   // For development/demo: skip certificate validation (INSECURE)
   client->setInsecure();
+  // Production (recommended): trust anchors with Supabase CA
+  // static const char* root_ca_pem = "-----BEGIN CERTIFICATE-----\n...your CA...\n-----END CERTIFICATE-----\n";
+  // BearSSL::X509List rootCert(root_ca_pem);
+  // client->setTrustAnchors(&rootCert);
 
   HTTPClient https;
   Serial.print("POST -> ");
   Serial.println(SUPABASE_URL);
 
   if (https.begin(*client, SUPABASE_URL)) {
+    https.setTimeout(8000); // 8s HTTP timeout
     https.addHeader("Content-Type", "application/json");
     // send anon key (for dev) — Supabase expects both apikey and Authorization for REST
     https.addHeader("apikey", SUPABASE_API_KEY);
@@ -95,7 +100,17 @@ void sendToSupabase(float weight) {
     // Optional: tell Supabase to return the created record
     https.addHeader("Prefer", "return=representation");
 
-    int httpCode = https.POST(payload);
+    // Simple retry loop with backoff
+    int attempts = 0;
+    const int maxAttempts = 2;
+    int httpCode = -1;
+    while (attempts < maxAttempts) {
+      httpCode = https.POST(payload);
+      if (httpCode > 0) break;
+      delay(500 * (attempts + 1));
+      attempts++;
+    }
+
     if (httpCode > 0) {
       String response = https.getString();
       Serial.printf("Supabase POST code: %d\n", httpCode);
@@ -118,7 +133,7 @@ void loop() {
   }
 
   unsigned long now = millis();
-  if (now - lastPost >= POST_INTERVAL_MS) {
+  if ((now - lastPost >= POST_INTERVAL_MS)) {
     lastPost = now;
     if (!isnan(weight)) {
       sendToSupabase(weight);
