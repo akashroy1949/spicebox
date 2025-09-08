@@ -3,7 +3,9 @@ import './App.css'
 import './index.css'
 import { supabase } from './supabaseClient'
 import DeviceCard from './components/DeviceCard'
+import Header from './components/Header'
 import { useRealtimeReadings } from './hooks/useRealtimeReadings'
+import { useNotificationMonitor } from './hooks/useNotificationMonitor'
 
 function AddDeviceForm({ onDeviceAdded }) {
   const [deviceId, setDeviceId] = useState('')
@@ -12,6 +14,38 @@ function AddDeviceForm({ onDeviceAdded }) {
   const [maxCapacity, setMaxCapacity] = useState(500)
   const [isOpen, setIsOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [selectedFile, setSelectedFile] = useState(null)
+  const [imagePreview, setImagePreview] = useState(null)
+
+  // Function to reset form
+  function resetForm() {
+    setDeviceId('')
+    setContainerName('')
+    setMinQuantity(10)
+    setMaxCapacity(500)
+    setSelectedFile(null)
+    setImagePreview(null)
+  }
+
+  // Reset form when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      resetForm()
+    }
+  }, [isOpen])
+
+  function handleFile(e) {
+    const file = e.target.files?.[0]
+    if (file) {
+      setSelectedFile(file)
+      // Create image preview
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        setImagePreview(e.target.result)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -19,13 +53,32 @@ function AddDeviceForm({ onDeviceAdded }) {
 
     setLoading(true)
     try {
+      let imageUrl = null
+
+      // Upload image if a file was selected
+      if (selectedFile) {
+        const ext = selectedFile.name.split('.').pop()
+        const path = `${deviceId.trim()}/${Date.now()}.${ext}`
+        const { error: upErr } = await supabase.storage.from('device-images').upload(path, selectedFile, {
+          cacheControl: '3600', upsert: true
+        })
+        if (upErr) {
+          console.error('Upload error:', upErr)
+          alert('Error uploading image: ' + upErr.message)
+          return
+        }
+        const { data: publicUrl } = supabase.storage.from('device-images').getPublicUrl(path)
+        imageUrl = publicUrl.publicUrl
+      }
+
       const { error } = await supabase
         .from('devices')
         .insert({
           deviceid: deviceId.trim(),
           container_name: containerName.trim() || null,
           min_quantity_g: Number(minQuantity),
-          max_capacity_g: Number(maxCapacity)
+          max_capacity_g: Number(maxCapacity),
+          image_url: imageUrl
         })
 
       if (!error) {
@@ -34,6 +87,8 @@ function AddDeviceForm({ onDeviceAdded }) {
         setContainerName('')
         setMinQuantity(10)
         setMaxCapacity(500)
+        setSelectedFile(null)
+        setImagePreview(null)
         setIsOpen(false)
         // Only refresh data after successful insert
         onDeviceAdded()
@@ -50,80 +105,146 @@ function AddDeviceForm({ onDeviceAdded }) {
     return (
       <button
         onClick={() => setIsOpen(true)}
-        className="flex items-center justify-center h-32 border-2 border-dashed border-gray-300 rounded-lg hover:border-gray-400 transition-colors"
+        className="group relative overflow-hidden bg-gradient-to-br from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white rounded-xl p-6 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 min-h-[200px] w-full flex flex-col items-center justify-center"
       >
-        <div className="text-center">
-          <div className="text-2xl mb-2">+</div>
-          <div className="text-sm text-gray-600">Add Device</div>
+        <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+        <div className="relative z-10 text-center">
+          <div className="w-16 h-16 mx-auto mb-4 bg-white/20 rounded-full flex items-center justify-center">
+            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+          </div>
+          <div className="text-lg font-semibold mb-1">Add Device</div>
+          <div className="text-sm opacity-90">Connect a new spice container</div>
         </div>
       </button>
     )
   }
 
   return (
-    <div className="border-2 border-dashed border-blue-300 rounded-lg p-4 bg-blue-50">
-      <form onSubmit={handleSubmit} className="space-y-3">
-        <div>
-          <label className="block text-sm font-medium mb-1">Device ID *</label>
-          <input
-            type="text"
-            value={deviceId}
-            onChange={(e) => setDeviceId(e.target.value)}
-            placeholder="e.g., spicebox-01"
-            className="w-full border rounded px-3 py-2"
-            required
-          />
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto transform transition-all duration-300 scale-100">
+        <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-4 rounded-t-lg">
+          <h3 className="text-lg font-bold text-white text-center">Add New Device</h3>
+          <p className="text-blue-100 text-center text-sm mt-1">Connect your spice container</p>
         </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Container Name</label>
-          <input
-            type="text"
-            value={containerName}
-            onChange={(e) => setContainerName(e.target.value)}
-            placeholder="e.g., Salt Container"
-            className="w-full border rounded px-3 py-2"
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
+
+        <form onSubmit={handleSubmit} className="p-4 space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Min Quantity (g)</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-1">Device ID *</label>
             <input
-              type="number"
-              value={minQuantity}
-              onChange={(e) => setMinQuantity(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-              min="1"
+              type="text"
+              value={deviceId}
+              onChange={(e) => setDeviceId(e.target.value)}
+              placeholder="e.g., spicebox-01"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 transition-all duration-200 text-sm"
+              required
             />
           </div>
+
           <div>
-            <label className="block text-sm font-medium mb-1">Max Capacity (g)</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-1">Container Name</label>
             <input
-              type="number"
-              value={maxCapacity}
-              onChange={(e) => setMaxCapacity(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-              min="1"
+              type="text"
+              value={containerName}
+              onChange={(e) => setContainerName(e.target.value)}
+              placeholder="e.g., Salt Container"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 transition-all duration-200 text-sm"
             />
           </div>
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => setIsOpen(false)}
-            className="px-4 py-2 border rounded hover:bg-gray-50"
-            disabled={loading}
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-            disabled={loading}
-          >
-            {loading ? 'Adding...' : 'Add Device'}
-          </button>
-        </div>
-      </form>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Min Quantity (g)</label>
+              <input
+                type="number"
+                value={minQuantity}
+                onChange={(e) => setMinQuantity(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 transition-all duration-200 text-sm"
+                min="1"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Max Capacity (g)</label>
+              <input
+                type="number"
+                value={maxCapacity}
+                onChange={(e) => setMaxCapacity(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 bg-gray-100 text-gray-500 cursor-not-allowed transition-all duration-200 text-sm"
+                min="1"
+                disabled
+                title="This field is disabled"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1">Container Image</label>
+            <div className="flex items-center gap-3">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleFile}
+                disabled={loading}
+                className="flex-1 border border-gray-300 rounded-md px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 transition-all duration-200 file:mr-3 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-medium file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 text-sm"
+              />
+
+              {/* Image Preview - Right side of file input */}
+              {imagePreview && (
+                <div className="relative flex-shrink-0">
+                  <img
+                    src={imagePreview}
+                    alt="Preview"
+                    className="w-12 h-12 object-cover rounded-md border-2 border-gray-200"
+                  />
+                  <button
+                    onClick={() => {
+                      setImagePreview(null)
+                      setSelectedFile(null)
+                      const fileInput = document.querySelector('input[type="file"]')
+                      if (fileInput) fileInput.value = ''
+                    }}
+                    className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-600 transition-colors duration-200"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex gap-4 pt-4">
+            <button
+              type="button"
+              onClick={() => {
+                resetForm()
+                setIsOpen(false)
+              }}
+              className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 font-semibold transition-all duration-200 text-sm"
+              disabled={loading}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-md hover:from-blue-600 hover:to-purple-700 font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+              disabled={loading}
+            >
+              {loading ? (
+                <div className="flex items-center justify-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span className="ml-2">Adding...</span>
+                </div>
+              ) : (
+                'Add Device'
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }
@@ -131,6 +252,9 @@ function AddDeviceForm({ onDeviceAdded }) {
 function App() {
   const [devices, setDevices] = useState([])
   const latestByDevice = useRealtimeReadings(devices.map((d) => d.deviceid))
+
+  // Monitor for low weight notifications
+  useNotificationMonitor(devices, latestByDevice)
 
   const loadDevices = async () => {
     const { data, error } = await supabase
@@ -149,92 +273,36 @@ function App() {
     loadDevices()
   }, [])
 
-  const cleanupStorage = async () => {
-    try {
-      // Get all files in device-images bucket
-      const { data: files, error } = await supabase.storage.from('device-images').list('', { limit: 1000 })
-      if (error) {
-        console.error('Error listing files:', error)
-        return
-      }
-
-      console.log('All files in storage:', files)
-
-      // Get all device image URLs from database
-      const { data: devices } = await supabase.from('devices').select('image_url')
-      const validUrls = devices?.map(d => d.image_url).filter(Boolean) || []
-
-      console.log('Valid URLs in database:', validUrls)
-
-      // Find files that are not referenced in database
-      const filesToDelete = []
-      for (const file of files) {
-        const filePath = file.name
-        const isReferenced = validUrls.some(url => url.includes(filePath))
-        if (!isReferenced) {
-          filesToDelete.push(filePath)
-        }
-      }
-
-      console.log('Files to delete:', filesToDelete)
-
-      if (filesToDelete.length > 0) {
-        const { data, error: deleteError } = await supabase.storage.from('device-images').remove(filesToDelete)
-        console.log('Delete response:', { data, error: deleteError })
-
-        if (deleteError) {
-          console.error('Error deleting files:', deleteError)
-          alert(`Error: ${deleteError.message}`)
-        } else {
-          console.log(`Deleted ${filesToDelete.length} orphaned files:`, filesToDelete)
-          alert(`Cleaned up ${filesToDelete.length} orphaned image files`)
-        }
-      } else {
-        alert('No orphaned files found')
-      }
-    } catch (err) {
-      console.error('Cleanup error:', err)
-    }
-  }
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 flex items-center justify-center">
-      <div className="w-full max-w-6xl mx-auto p-6">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-semibold">Spicebox</h1>
-          <div className="flex gap-2">
-            <button
-              onClick={cleanupStorage}
-              className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200"
-            >
-              Cleanup Storage
-            </button>
-            <button
-              onClick={async () => {
-                const path = prompt('Enter file path to delete (e.g., spicebox-01/1757268348276.png):')
-                if (path) {
-                  const { data, error } = await supabase.storage.from('device-images').remove([path])
-                  console.log('Manual delete result:', { data, error })
-                  alert(error ? `Error: ${error.message}` : 'File deleted successfully')
-                }
-              }}
-              className="px-3 py-1 text-sm bg-orange-100 text-orange-700 rounded hover:bg-orange-200"
-            >
-              Manual Delete
-            </button>
-          </div>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 justify-items-center">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      {/* Header with Notification Bell */}
+      <Header />
+
+      <div className="container mx-auto px-4 py-8 max-w-7xl">
+        {/* Devices Grid */}
+        <div className="grid gap-6 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
           {devices.map((d) => (
             <DeviceCard key={d.deviceid} device={d} latestReading={latestByDevice[d.deviceid]} onUpdated={loadDevices} />
           ))}
           <AddDeviceForm onDeviceAdded={loadDevices} />
-          {devices.length === 0 && (
-            <div className="col-span-full text-center text-sm text-gray-500 py-8">
-              No devices yet. Click "Add Device" to get started.
-            </div>
-          )}
         </div>
+
+        {/* Empty State */}
+        {devices.length === 0 && (
+          <div className="text-center py-16">
+            <div className="max-w-md mx-auto">
+              <div className="w-24 h-24 mx-auto mb-6 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full flex items-center justify-center">
+                <svg className="w-12 h-12 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">No devices yet</h3>
+              <p className="text-gray-600 mb-6">Get started by adding your first spice container</p>
+              <AddDeviceForm onDeviceAdded={loadDevices} />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

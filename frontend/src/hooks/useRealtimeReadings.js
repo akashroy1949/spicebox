@@ -39,24 +39,39 @@ export function useRealtimeReadings(deviceIds = []) {
 
     // Subscribe to realtime inserts
     useEffect(() => {
+        console.log('🔌 Setting up real-time subscription for readings...')
+
         const channel = supabase
             .channel('readings-inserts')
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'readings' }, (payload) => {
-                console.log('Realtime event received:', payload)
+                console.log('📡 Real-time event received:', payload)
                 const row = payload.new
-                if (!row?.deviceid) return
+                if (!row?.deviceid) {
+                    console.log('⚠️ Invalid reading data received')
+                    return
+                }
+
+                console.log(`📊 New reading for device ${row.deviceid}: ${row.weight_g}g`)
+
                 setLatestByDevice((prev) => {
                     const prevTs = prev[row.deviceid]?.created_at ? new Date(prev[row.deviceid].created_at).getTime() : 0
                     const newTs = row.created_at ? new Date(row.created_at).getTime() : Date.now()
+
                     if (newTs >= prevTs) {
+                        console.log(`✅ Updated reading for ${row.deviceid}: ${row.weight_g}g (was ${prev[row.deviceid]?.weight_g || 'none'})`)
                         return { ...prev, [row.deviceid]: row }
+                    } else {
+                        console.log(`⏭️ Ignoring older reading for ${row.deviceid}`)
+                        return prev
                     }
-                    return prev
                 })
             })
-            .subscribe()
+            .subscribe((status) => {
+                console.log('🔌 Subscription status:', status)
+            })
 
         return () => {
+            console.log('🔌 Cleaning up real-time subscription')
             supabase.removeChannel(channel)
         }
     }, [])

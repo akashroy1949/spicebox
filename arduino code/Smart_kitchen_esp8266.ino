@@ -48,7 +48,7 @@ void setup() {
   // WiFiManager: start portal if no saved credentials
   WiFiManager wifiManager;
   Serial.println("Starting Wi-Fi Manager (AP: ESP8266-WeightScale) ...");
-  if (!wifiManager.autoConnect("ESP8266-WeightScale")) {
+  if (!wifiManager.autoConnect(deviceId)) {
     Serial.println("Failed to connect and hit timeout — restarting...");
     ESP.restart();
     delay(1000);
