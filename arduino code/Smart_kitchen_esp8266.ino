@@ -68,28 +68,63 @@ float readWeight() {
   return w;
 }
 
-void sendToSupabase(float weight) {
+void deleteOldReadings() {
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi disconnected, skipping Supabase POST.");
+    Serial.println("WiFi disconnected, skipping deletion.");
     return;
   }
 
+  std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure());
+  client->setInsecure();
+
+  HTTPClient https;
+  
+  // Create the DELETE URL with query parameters to delete old readings
+  String deleteUrl = String(SUPABASE_URL) + "?deviceid=eq." + deviceId + "&id=not.in.(select id from readings where deviceid='" + deviceId + "' order by created_at desc limit 1)";
+  
+  Serial.println("\n=== DELETE REQUEST DETAILS ===");
+  Serial.println("Base URL: " + String(SUPABASE_URL));
+  Serial.println("Device ID: " + String(deviceId));
+  Serial.println("Full URL: " + deleteUrl);
+  Serial.println("============================\n");
+
+  if (https.begin(*client, deleteUrl)) {
+    https.setTimeout(8000);
+    https.addHeader("apikey", SUPABASE_API_KEY);
+    https.addHeader("Authorization", String("Bearer ") + SUPABASE_API_KEY);
+
+    int httpCode = https.sendRequest("DELETE");
+
+    if (httpCode > 0) {
+      String response = https.getString();
+      Serial.printf("Delete old readings response code: %d\n", httpCode);
+      Serial.println("Response: " + response);
+    } else {
+      Serial.printf("DELETE failed, error: %s\n", https.errorToString(httpCode).c_str());
+    }
+    https.end();
+  } else {
+    Serial.println("Unable to begin HTTPS connection for deletion");
+  }
+}
+
+bool sendToSupabase(float weight) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi disconnected, skipping Supabase POST.");
+    return false;
+  }
+
   // Build JSON payload (Supabase will set created_at)
-  // NOTE: Column is deviceid in DB, so use matching key
   String payload = "{\"deviceid\":\"" + String(deviceId) + "\",\"weight_g\":" + String(weight, 3) + "}";
 
-  // Secure client
   std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure());
-  // For development/demo: skip certificate validation (INSECURE)
   client->setInsecure();
-  // Production (recommended): trust anchors with Supabase CA
-  // static const char* root_ca_pem = "-----BEGIN CERTIFICATE-----\n...your CA...\n-----END CERTIFICATE-----\n";
-  // BearSSL::X509List rootCert(root_ca_pem);
-  // client->setTrustAnchors(&rootCert);
 
   HTTPClient https;
   Serial.print("POST -> ");
   Serial.println(SUPABASE_URL);
+
+  bool success = false;
 
   if (https.begin(*client, SUPABASE_URL)) {
     https.setTimeout(8000); // 8s HTTP timeout
@@ -104,6 +139,7 @@ void sendToSupabase(float weight) {
     int attempts = 0;
     const int maxAttempts = 2;
     int httpCode = -1;
+    
     while (attempts < maxAttempts) {
       httpCode = https.POST(payload);
       if (httpCode > 0) break;
@@ -115,6 +151,7 @@ void sendToSupabase(float weight) {
       String response = https.getString();
       Serial.printf("Supabase POST code: %d\n", httpCode);
       Serial.println("Response: " + response);
+      success = (httpCode >= 200 && httpCode < 300);
     } else {
       Serial.printf("POST failed, error: %s\n", https.errorToString(httpCode).c_str());
     }
@@ -122,6 +159,8 @@ void sendToSupabase(float weight) {
   } else {
     Serial.println("Unable to begin HTTPS connection");
   }
+  
+  return success;
 }
 
 void loop() {
@@ -136,7 +175,10 @@ void loop() {
   if ((now - lastPost >= POST_INTERVAL_MS)) {
     lastPost = now;
     if (!isnan(weight)) {
-      sendToSupabase(weight);
+      // Only delete old readings if the POST was successful
+      if (sendToSupabase(weight)) {
+        deleteOldReadings();
+      }
     } else {
       Serial.println("Skipping POST due to invalid reading");
     }
