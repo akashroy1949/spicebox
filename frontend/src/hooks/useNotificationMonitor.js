@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react'
+import { validateWeight } from '../lib/utils'
 
 export function useNotificationMonitor(devices, latestReadings) {
   const lastNotificationTimeRef = useRef({})
@@ -87,22 +88,27 @@ export function useNotificationMonitor(devices, latestReadings) {
       }
 
       const currentWeight = reading.weight_g
+      const maxCapacity = device.max_capacity_g || 500
+      
+      // Validate and clamp the weight
+      const validatedWeight = validateWeight(currentWeight, maxCapacity)
+      
       const minQuantity = device.min_quantity_g || 10
       const deviceId = device.deviceid
       const containerName = device.container_name || 'Unnamed Container'
 
-      console.log(`📊 Device ${deviceId} (${containerName}): Current=${currentWeight}g, Min=${minQuantity}g`)
+      console.log(`📊 Device ${deviceId} (${containerName}): Raw=${currentWeight}g, Validated=${validatedWeight}g, Min=${minQuantity}g`)
 
       // Check if weight reading has actually changed since last check
       const lastProcessedReading = lastProcessedReadingRef.current[deviceId]
       const weightChanged = !lastProcessedReading || lastProcessedReading.weight_g !== currentWeight
 
-      console.log(`📊 Device ${deviceId} weight change check: Last=${lastProcessedReading?.weight_g || 'none'}, Current=${currentWeight}, Changed=${weightChanged}`)
+      console.log(`📊 Device ${deviceId} weight change check: Last=${lastProcessedReading?.weight_g || 'none'}, Current=${currentWeight}, Validated=${validatedWeight}, Changed=${weightChanged}`)
 
       // Only process notifications if weight has actually changed
       if (weightChanged) {
-        // Check if weight is below minimum
-        const isLow = currentWeight < minQuantity
+        // Check if validated weight is below minimum
+        const isLow = validatedWeight < minQuantity
 
         if (isLow) {
           // Check if enough time has passed since last notification (short cooldown to prevent spam)
@@ -114,8 +120,8 @@ export function useNotificationMonitor(devices, latestReadings) {
 
           // Send notification for low weight reading (with 5-second cooldown)
           if (timeSinceLastNotification > 5 * 1000) {
-            console.log(`🚨 SENDING NOTIFICATION for ${containerName} - LOW WEIGHT ALERT! Weight: ${currentWeight}g`)
-            sendLowWeightNotification(device, currentWeight, minQuantity)
+            console.log(`🚨 SENDING NOTIFICATION for ${containerName} - LOW WEIGHT ALERT! Validated Weight: ${validatedWeight}g`)
+            sendLowWeightNotification(device, validatedWeight, minQuantity)
             lastNotificationTimeRef.current[deviceId] = now
           } else {
             console.log(`⏳ Skipping notification for ${deviceId} - cooldown active (${Math.round((5 * 1000 - timeSinceLastNotification) / 1000)}s remaining)`)

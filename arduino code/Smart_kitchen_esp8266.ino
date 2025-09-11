@@ -30,7 +30,7 @@ const unsigned long POST_INTERVAL_MS = 2000;
 unsigned long lastPost = 0;
 
 // Calibration factor (use your current working value)
-float calibration_factor = 440.705;
+float calibration_factor =  639.619019;
 
 // HX711 object
 HX711 scale;
@@ -68,7 +68,7 @@ float readWeight() {
   return w;
 }
 
-void deleteOldReadings() {
+void deleteOldReadings(String latestReadingResponse = "") {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi disconnected, skipping deletion.");
     return;
@@ -78,37 +78,101 @@ void deleteOldReadings() {
   client->setInsecure();
 
   HTTPClient https;
-  
-  // Create the DELETE URL with query parameters to delete old readings
-  String deleteUrl = String(SUPABASE_URL) + "?deviceid=eq." + deviceId + "&id=not.in.(select id from readings where deviceid='" + deviceId + "' order by created_at desc limit 1)";
-  
-  Serial.println("\n=== DELETE REQUEST DETAILS ===");
-  Serial.println("Base URL: " + String(SUPABASE_URL));
-  Serial.println("Device ID: " + String(deviceId));
-  Serial.println("Full URL: " + deleteUrl);
-  Serial.println("============================\n");
+  String latestId = "";
 
-  if (https.begin(*client, deleteUrl)) {
-    https.setTimeout(8000);
-    https.addHeader("apikey", SUPABASE_API_KEY);
-    https.addHeader("Authorization", String("Bearer ") + SUPABASE_API_KEY);
-
-    int httpCode = https.sendRequest("DELETE");
-
-    if (httpCode > 0) {
-      String response = https.getString();
-      Serial.printf("Delete old readings response code: %d\n", httpCode);
-      Serial.println("Response: " + response);
-    } else {
-      Serial.printf("DELETE failed, error: %s\n", https.errorToString(httpCode).c_str());
+  // If we have the POST response, use it directly instead of making a GET request
+  if (latestReadingResponse.length() > 0) {
+    Serial.println("Using POST response for deletion: " + latestReadingResponse);
+    
+    // Parse JSON to extract id from POST response
+    int idStart = latestReadingResponse.indexOf("\"id\":");
+    if (idStart != -1) {
+      idStart += 5; // Skip "id":
+      // Find the end of the number (comma or closing bracket)
+      int idEnd = latestReadingResponse.indexOf(",", idStart);
+      if (idEnd == -1) {
+        idEnd = latestReadingResponse.indexOf("}", idStart);
+      }
+      if (idEnd != -1) {
+        latestId = latestReadingResponse.substring(idStart, idEnd);
+        latestId.trim(); // Remove any whitespace
+        Serial.println("Latest reading ID from POST: " + latestId);
+      }
     }
-    https.end();
   } else {
-    Serial.println("Unable to begin HTTPS connection for deletion");
+    // Fallback: GET the latest reading for this device (original logic)
+    Serial.println("No POST response provided, making GET request for latest reading");
+    String getUrl = String(SUPABASE_URL) + "?deviceid=eq." + deviceId + "&order=created_at.desc&limit=1";
+
+    if (https.begin(*client, getUrl)) {
+      https.setTimeout(8000);
+      https.addHeader("apikey", SUPABASE_API_KEY);
+      https.addHeader("Authorization", String("Bearer ") + SUPABASE_API_KEY);
+      https.addHeader("Accept", "application/json");
+
+      int httpCode = https.GET();
+      Serial.printf("GET request to get latest reading - HTTP code: %d\n", httpCode);
+
+      if (httpCode == 200) {
+        String response = https.getString();
+        Serial.println("GET response: " + response);
+        
+        if (response.length() > 2) {
+          // Parse JSON to extract id (id is a number, not a string)
+          int idStart = response.indexOf("\"id\":");
+          if (idStart != -1) {
+            idStart += 5; // Skip "id":
+            // Find the end of the number (comma or closing bracket)
+            int idEnd = response.indexOf(",", idStart);
+            if (idEnd == -1) {
+              idEnd = response.indexOf("}", idStart);
+            }
+            if (idEnd != -1) {
+              latestId = response.substring(idStart, idEnd);
+              latestId.trim(); // Remove any whitespace
+              Serial.println("Latest reading ID: " + latestId);
+            }
+          }
+        } else {
+          Serial.println("No readings found for this device");
+        }
+      } else {
+        String response = https.getString();
+        Serial.println("GET failed - Response: " + response);
+      }
+      https.end();
+    }
+  }
+
+  // DELETE all readings except the latest one
+  if (latestId.length() > 0) {
+    String deleteUrl = String(SUPABASE_URL) + "?deviceid=eq." + deviceId + "&id=neq." + latestId;
+
+    if (https.begin(*client, deleteUrl)) {
+      https.setTimeout(8000);
+      https.addHeader("Content-Type", "application/json");
+      https.addHeader("apikey", SUPABASE_API_KEY);
+      https.addHeader("Authorization", String("Bearer ") + SUPABASE_API_KEY);
+      https.addHeader("Prefer", "return=minimal");
+
+      int httpCode = https.sendRequest("DELETE");
+      Serial.printf("DELETE request to clean old readings - HTTP code: %d\n", httpCode);
+
+      if (httpCode == 200 || httpCode == 204) {
+        String response = https.getString();
+        Serial.println("DELETE successful - Response: " + response);
+        Serial.println("Old readings cleaned up successfully");
+      } else {
+        String response = https.getString();
+        Serial.printf("Delete failed: %d\n", httpCode);
+        Serial.println("DELETE error response: " + response);
+      }
+      https.end();
+    }
   }
 }
 
-bool sendToSupabase(float weight) {
+bool sendToSupabase(float weight, String &postResponse) {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi disconnected, skipping Supabase POST.");
     return false;
@@ -148,9 +212,9 @@ bool sendToSupabase(float weight) {
     }
 
     if (httpCode > 0) {
-      String response = https.getString();
+      postResponse = https.getString();
       Serial.printf("Supabase POST code: %d\n", httpCode);
-      Serial.println("Response: " + response);
+      Serial.println("Response: " + postResponse);
       success = (httpCode >= 200 && httpCode < 300);
     } else {
       Serial.printf("POST failed, error: %s\n", https.errorToString(httpCode).c_str());
@@ -175,9 +239,11 @@ void loop() {
   if ((now - lastPost >= POST_INTERVAL_MS)) {
     lastPost = now;
     if (!isnan(weight)) {
-      // Only delete old readings if the POST was successful
-      if (sendToSupabase(weight)) {
-        deleteOldReadings();
+      // POST to Supabase and capture the response
+      String postResponse = "";
+      if (sendToSupabase(weight, postResponse)) {
+        // Pass the POST response directly to delete function to avoid extra GET request
+        deleteOldReadings(postResponse);
       }
     } else {
       Serial.println("Skipping POST due to invalid reading");

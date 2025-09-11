@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
+import Gauge from './Gauge'
+import { validateWeight } from '../lib/utils'
 
 export default function DeviceCard({ device, latestReading, onUpdated }) {
   const [open, setOpen] = useState(false)
@@ -23,7 +25,10 @@ export default function DeviceCard({ device, latestReading, onUpdated }) {
 
   const current = latestReading?.weight_g ?? null
   const maxCap = device.max_capacity_g ?? 500
-  const low = current != null ? Number(current) <= Number(device.min_quantity_g ?? 10) : false
+  
+  // Validate and clamp the current weight
+  const validatedWeight = current != null ? validateWeight(current, maxCap) : null
+  const low = validatedWeight != null ? validatedWeight <= Number(device.min_quantity_g ?? 10) : false
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -276,7 +281,7 @@ export default function DeviceCard({ device, latestReading, onUpdated }) {
               )}
             </div>
             {/* Status indicator */}
-            <div className={`absolute -top-1 -right-1 w-3 h-3 sm:w-4 sm:h-4 rounded-full border-2 border-white ${current != null ? (low ? 'bg-red-500' : 'bg-green-500') : 'bg-gray-400'}`}></div>
+            <div className={`absolute -top-1 -right-1 w-3 h-3 sm:w-4 sm:h-4 rounded-full border-2 border-white ${validatedWeight != null ? (low ? 'bg-red-500' : 'bg-green-500') : 'bg-gray-400'}`}></div>
           </div>
 
           <div className="flex-1 min-w-0">
@@ -290,7 +295,7 @@ export default function DeviceCard({ device, latestReading, onUpdated }) {
               <div className="relative" ref={dropdownRef}>
                 <button
                   onClick={() => setShowDropdown(!showDropdown)}
-                  className="ml-2 p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 transition-colors duration-200 opacity-0 group-hover:opacity-100 sm:opacity-100"
+                  className="ml-2 p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 transition-colors duration-200 opacity-100"
                 >
                   <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
@@ -332,6 +337,11 @@ export default function DeviceCard({ device, latestReading, onUpdated }) {
           </div>
         </div>
 
+        {/* Gauge Component */}
+        <div className="mb-4">
+          <Gauge value={validatedWeight || 0} max={maxCap} />
+        </div>
+
         {/* Weight Information */}
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-2 sm:gap-3 text-sm">
@@ -346,9 +356,9 @@ export default function DeviceCard({ device, latestReading, onUpdated }) {
           </div>
 
           <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-3 sm:p-4">
-            <div className="text-xs text-gray-600 font-medium uppercase tracking-wide mb-1">Current Weight</div>
-            <div className={`text-xl sm:text-2xl font-bold ${current != null ? (low ? 'text-red-600' : 'text-green-600') : 'text-gray-400'}`}>
-              {current != null ? `${Number(current)}g` : '—'}
+            <div className="text-xs text-gray-600 font-medium uppercase tracking-wide mb-1">Current Quantity</div>
+            <div className={`text-xl sm:text-2xl font-bold ${validatedWeight != null ? (low ? 'text-red-600' : 'text-green-600') : 'text-gray-400'}`}>
+              {validatedWeight != null ? `${Number(validatedWeight)}g` : '—'}
             </div>
           </div>
         </div>

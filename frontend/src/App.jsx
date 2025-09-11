@@ -7,12 +7,12 @@ import Header from './components/Header'
 import { useRealtimeReadings } from './hooks/useRealtimeReadings'
 import { useNotificationMonitor } from './hooks/useNotificationMonitor'
 
-function AddDeviceForm({ onDeviceAdded }) {
+function AddDeviceForm({ onDeviceAdded, onCancel, forceModal = false }) {
   const [deviceId, setDeviceId] = useState('')
   const [containerName, setContainerName] = useState('')
   const [minQuantity, setMinQuantity] = useState(10)
   const [maxCapacity, setMaxCapacity] = useState(500)
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setIsOpen] = useState(forceModal) // Start open if forceModal is true
   const [loading, setLoading] = useState(false)
   const [selectedFile, setSelectedFile] = useState(null)
   const [imagePreview, setImagePreview] = useState(null)
@@ -219,6 +219,7 @@ function AddDeviceForm({ onDeviceAdded }) {
               onClick={() => {
                 resetForm()
                 setIsOpen(false)
+                onCancel && onCancel()
               }}
               className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 font-semibold transition-all duration-200 text-sm"
               disabled={loading}
@@ -251,6 +252,7 @@ function AddDeviceForm({ onDeviceAdded }) {
 
 function App() {
   const [devices, setDevices] = useState([])
+  const [showAddDeviceForm, setShowAddDeviceForm] = useState(false)
   const latestByDevice = useRealtimeReadings(devices.map((d) => d.deviceid))
 
   // Monitor for low weight notifications
@@ -269,6 +271,15 @@ function App() {
     }
   }
 
+  const handleAddDevice = () => {
+    setShowAddDeviceForm(true)
+  }
+
+  const handleDeviceAdded = () => {
+    setShowAddDeviceForm(false)
+    loadDevices()
+  }
+
   useEffect(() => {
     loadDevices()
   }, [])
@@ -276,20 +287,28 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      {/* Header with Notification Bell */}
-      <Header />
+      {/* Header with Notification Bell and Add Device Button */}
+      <Header hasDevices={devices.length > 0} onAddDevice={handleAddDevice} />
 
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Devices Grid */}
-        <div className="grid gap-6 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+        <div className="grid gap-6 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {devices.map((d) => (
             <DeviceCard key={d.deviceid} device={d} latestReading={latestByDevice[d.deviceid]} onUpdated={loadDevices} />
           ))}
-          <AddDeviceForm onDeviceAdded={loadDevices} />
         </div>
 
-        {/* Empty State */}
-        {devices.length === 0 && (
+        {/* Modal AddDeviceForm - Show when any button is clicked */}
+        {showAddDeviceForm && (
+          <AddDeviceForm
+            onDeviceAdded={handleDeviceAdded}
+            onCancel={() => setShowAddDeviceForm(false)}
+            forceModal={true}
+          />
+        )}
+
+        {/* Empty State - Only show when no devices and no add form is showing */}
+        {devices.length === 0 && !showAddDeviceForm && (
           <div className="text-center py-16">
             <div className="max-w-md mx-auto">
               <div className="w-24 h-24 mx-auto mb-6 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full flex items-center justify-center">
@@ -299,7 +318,12 @@ function App() {
               </div>
               <h3 className="text-xl font-semibold text-gray-900 mb-2">No devices yet</h3>
               <p className="text-gray-600 mb-6">Get started by adding your first spice container</p>
-              <AddDeviceForm onDeviceAdded={loadDevices} />
+              <button
+                onClick={handleAddDevice}
+                className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white rounded-lg font-medium transition-all duration-200 shadow-md hover:shadow-lg"
+              >
+                Add Your First Device
+              </button>
             </div>
           </div>
         )}

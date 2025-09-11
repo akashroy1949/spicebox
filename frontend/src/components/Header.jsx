@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import NotificationManager from './NotificationManager'
 
-export default function Header() {
+export default function Header({ hasDevices, onAddDevice }) {
   const [showNotificationModal, setShowNotificationModal] = useState(false)
 
   return (
@@ -15,33 +15,46 @@ export default function Header() {
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-3">
                 {/* Logo */}
-                <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                  </svg>
+                <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-purple-700 rounded-lg flex items-center justify-center p-1 shadow-lg ring-2 ring-blue-200">
+                  <img src="/spicebox_logo.png" alt="Spicebox Logo" className="w-full h-full object-contain filter drop-shadow-sm" />
                 </div>
                 {/* Brand Name & Slogan */}
                 <div>
                   <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
                     Spicebox
                   </h1>
-                  <p className="text-xs text-gray-500 hidden sm:block">Smart Kitchen Inventory</p>
+                  <p className="text-xs text-gray-500 hidden sm:block">Smart Kitchen Inventory Management System</p>
                 </div>
               </div>
             </div>
 
-            {/* Right side - Bell Icon */}
-            <div className="flex items-center">
+            {/* Right side - Add Device Button + Bell Icon */}
+            <div className="flex items-center gap-2">
+              {/* Add Device Button - Only show when devices exist */}
+              {hasDevices && (
+                <button
+                  onClick={onAddDevice}
+                  className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white rounded-lg transition-all duration-200 text-sm font-medium shadow-md hover:shadow-lg"
+                  title="Add New Device"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  <span className="hidden sm:inline">Add Device</span>
+                </button>
+              )}
+
+              {/* Bell Icon */}
               <button
                 onClick={() => setShowNotificationModal(true)}
-                className="relative p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200 group"
+                className="relative p-2 text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 rounded-lg transition-all duration-200 group shadow-md hover:shadow-lg"
                 title="Notification Settings"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-5 5v-5zM15 17H9a6 6 0 01-6-6V9a6 6 0 0110.293-4.293L15 6.414V17z" />
                 </svg>
                 {/* Notification indicator dot */}
-                <div className="absolute top-1 right-1 w-2 h-2 bg-blue-500 rounded-full opacity-75 group-hover:opacity-100"></div>
+                <div className="absolute top-1 right-1 w-2 h-2 bg-yellow-400 rounded-full opacity-75 group-hover:opacity-100"></div>
               </button>
             </div>
           </div>
